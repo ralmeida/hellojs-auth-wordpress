@@ -93,16 +93,17 @@ class HelloJSAuthModel
      */
     public function set_query_var( Array $vars )
     {
-        //print_r($vars);
-
         if ( ! empty ( $vars[ $this->options['name'] ] ) )
             return $vars;
 
+        if (!$vars) return $vars;
+
         // When a static page was set as front page, the WordPress endpoint API
         // does some strange things. Let's fix that.
-        if ( isset ( $vars[ $this->options['name'] ] )
-            or ( isset ( $vars['pagename'] ) and $this->options['name'] === $vars['pagename'] )
-            or ( isset ( $vars['page'] ) and $this->options['name'] === $vars['name'] )
+        if ( //isset( $vars[ $this->options['name'] ] )
+            ( isset( $vars['pagename'] ) and $this->options['name'] === $vars['pagename'] )
+            or ( isset( $vars['page'] )  and isset( $vars['name'] ) and $this->options['name'] === $vars['name'] )
+            or ( isset( $vars['pagename'] ) and stripos($vars['pagename'], $this->options['name']."/") !== FALSE )
             )
         {
             // In some cases WP misinterprets the request as a page request and
@@ -110,6 +111,7 @@ class HelloJSAuthModel
             $vars['page'] = $vars['pagename'] = $vars['name'] = FALSE;
             $vars[ $this->options['name'] ] = TRUE;
         }
+        
         return $vars;
     }
 
@@ -123,81 +125,104 @@ class HelloJSAuthModel
     {   
         $api = get_query_var( $this->options['name'] );
         $api = trim( $api, '/' );
-
-        if ( '' === $api )
-            return;
-
         $parts  = explode( '/', $api );
         $action = array_shift( $parts );
         $type   = array_shift( $parts );
 
+        //var_dump($api);
+
+        if ( '' === $api )
+            return;
+
+        $settings = get_option('hellojsauth');
+
         $values['success'] = false;
         $values['message'] = "Login Default";
-        //$values['data'] = $this->get_api_values( join( '/', $parts ) );
 
-        //var_dump($_POST);
-        //var_dump($action);
-        //var_dump($type);
+        if(check_ajax_referer( 'hellojs-auth-login', 'itsit', false )) {
 
-        $user_email = (isset($_POST['email'])) ? $_POST['email'] : null;
+            $user_email = (isset($_POST['email'])) ? $_POST['email'] : null;
 
-        if($user_email) {
-            //atempt to find the WordPress user
-            $args = array(
-                'search'         => $user_email,
-                'search_columns' => array( 'user_email' )
-            );
-            $user_query = new WP_User_Query( $args );
+            if($user_email) {
+                //atempt to find the WordPress user
+                $args = array(
+                    'search'         => $user_email,
+                    'search_columns' => array( 'user_email' )
+                );
+                $user_query = new WP_User_Query( $args );
 
-            $total_result = count($user_query->results);
-            //if we found a user lets login them in
-            if($total_result) {
-                wp_set_auth_cookie($user_query->results[0]->data->ID);
-                $values['success'] = true;
-                $values['message'] = 'User Login!';
-            } 
-            //else we need to add the user to the site
-            else {
+                $total_result = count($user_query->results);
+                //if we found a user lets login them in
+                if($total_result) {
+                    wp_set_auth_cookie($user_query->results[0]->data->ID);
+                    $values['success'] = true;
+                    $values['message'] = 'User Login!';
+                } 
+                //else we need to add the user to the site
+                else {
 
-                //lets get some basic vars
-                $user_full_name = (isset($_POST['name'])) ? $_POST['name'] : null;
-                $user_first_name = (isset($_POST['first_name'])) ? $_POST['first_name'] : null;
-                $user_last_name = (isset($_POST['last_name'])) ? $_POST['last_name'] : null;
+                    //lets get some basic vars
+                    $user_full_name = (isset($_POST['name'])) ? $_POST['name'] : null;
+                    $user_first_name = (isset($_POST['first_name'])) ? $_POST['first_name'] : null;
+                    $user_last_name = (isset($_POST['last_name'])) ? $_POST['last_name'] : null;
 
-                //TODO: here we can add in options for how the username is sorted out
-                //          as you will not always have a username field
-                $user_name = (isset($_POST['username'])) ? $_POST['username'] : null;
-                $user_name = $this->clean_username($user_name);
-                if($user_name == null) {
-                    $user_name = (isset($user_email)) ? $this->clean_username($user_email) : null;
+                    //TODO: here we can add in options for how the username is sorted out
+                    //          as you will not always have a username field
+                    $user_name = (isset($_POST['username'])) ? $_POST['username'] : null;
+                    $user_name = $this->clean_username($user_name);
                     if($user_name == null) {
-                        $user_name = $this->clean_username($user_full_name);
+                        $user_name = (isset($user_email)) ? $this->clean_username($user_email) : null;
+                        if($user_name == null) {
+                            $user_name = $this->clean_username($user_full_name);
+                        }
+                    }
+
+                    //do a check here for user based on above
+                    $user_id = username_exists( $user_name );
+
+                    //if we fail to get a username from the above we will just auto generate one
+                    if($user_id || $user_name == null) {
+                        $user_name = wp_generate_password( 8, false );
+                        $user_id = false;
+                    }
+                    
+                    //do a check here for user based on above (better safe than sorry)
+                    $user_id = username_exists( $user_name );
+
+                    if ( !$user_id and email_exists($user_email) == false ) {
+                        
+                        $random_password = wp_generate_password( $length=12, $include_standard_special_chars=false );
+                        $user_id = wp_create_user( $user_name, $random_password, $user_email );
+                        
+                        if($user_id) {
+
+                            wp_set_auth_cookie($user_id);
+                            $values['success'] = true;
+                            $values['message'] = 'User Login!';
+
+                            /*
+                            for now we will allow the error to be slient
+                            if ( is_wp_error( $user_id ) ) {
+                                // There was an error, probably that user doesn't exist.
+                            } 
+                            else {
+                                // Success!
+                            }
+                            */
+                        }
+                        else {
+                            $values['message'] = 'Could not create new user, contract support.';
+                        }
+                    } 
+                    else {
+                        $values['message'] = 'User already exists.';
                     }
                 }
 
-                //do a check here for user based on above
-                $user_id = username_exists( $user_name );
+                if($user_id) {
+                    $is_new = ($total_result==0);
 
-                //if we fail to get a username from the above we will just auto generate one
-                if($user_id || $user_name == null) {
-                    $user_name = wp_generate_password( 8, false );
-                    $user_id = false;
-                }
-                
-                //do a check here for user based on above (better safe than sorry)
-                $user_id = username_exists( $user_name );
-
-                if ( !$user_id and email_exists($user_email) == false ) {
-                    
-                    $random_password = wp_generate_password( $length=12, $include_standard_special_chars=false );
-                    $user_id = wp_create_user( $user_name, $random_password, $user_email );
-                    
-                    if($user_id) {
-
-                        wp_set_auth_cookie($user_id);
-                        $values['success'] = true;
-                        $values['message'] = 'User Login!';
-
+                    if($is_new || $settings->update_user_on_login) {
                         $user_data = array( 'ID' => $user_id );
 
                         if($user_full_name) {
@@ -208,28 +233,15 @@ class HelloJSAuthModel
                         if($user_last_name) $user_data['last_name'] = $user_last_name;
 
                         $user_id = wp_update_user($user_data);
-
-                        /*
-                        for now we will allow the error to be slient
-                        if ( is_wp_error( $user_id ) ) {
-                            // There was an error, probably that user doesn't exist.
-                        } 
-                        else {
-                            // Success!
-                        }
-                        */
                     }
-                    else {
-                        $values['message'] = 'Could not create new user, contract support.';
-                    }
-                } 
-                else {
-                    $values['message'] = 'User already exists.';
                 }
+            }
+            else {
+                $values['message'] = 'Could not locate E-Mail address in user data.';
             }
         }
         else {
-            $values['message'] = 'Could not locate E-Mail address in user data.';
+            $values['message'] = 'Invalid request, please refresh the page and try again.';
         }
 
         $callback = $this->options['callback'];

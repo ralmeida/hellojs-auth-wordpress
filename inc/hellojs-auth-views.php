@@ -12,8 +12,7 @@ class HelloJSAuthView
 
     protected function render( $data )
     {
-        $success = (isset($data['success'])) ? $data['success'] : "false";
-
+        $success = (isset($data['success'])) ? $data['success'] : false;
         echo json_encode($data);
     }
 }
