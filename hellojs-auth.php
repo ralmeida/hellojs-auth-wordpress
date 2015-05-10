@@ -144,8 +144,8 @@ function hellojsauth_options() {
 		<fieldset>
 			<legend><h3>Source Settings</h3></legend>
 			<hr />
-			<p>jQuery source <br />
-				<input type="text" name="hellojsauth_jquery_source" value="<?php _e($settings->source['jquery']); ?>" size="75" /></p>
+			<!--<p>jQuery source <br />
+				<input type="text" name="hellojsauth_jquery_source" value="<?php _e($settings->source['jquery']); ?>" size="75" /></p>-->
 			<p>hello.js source <br />
 				<input type="text" name="<?php _e($hellojs_source_field); ?>" value="<?php _e($settings->source['hellojs']); ?>" size="75" /></p>
 			<p>zocial source <br />
